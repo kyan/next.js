@@ -71,8 +71,8 @@ export class IncrementalCache {
     }
 
     this.cache = new LRUCache({
-      // default to 50MB limit
-      max: max || 50 * 1024 * 1024,
+      // reduce cache size to 1MB for easier investigation
+      max: max || 1 * 1024 * 1024,
       length(val) {
         if (val.isNotFound || val.isRedirect) return 25
         // rough estimate of size of cache value
@@ -116,7 +116,22 @@ export class IncrementalCache {
     if (this.incrementalOptions.dev) return
     pathname = normalizePagePath(pathname)
 
+    console.log({
+      key: 'cache_get_from_lru_cache_before_get',
+      timestamp: new Date().toString(),
+      pathname,
+      cacheKeys: this.cache.keys(),
+    })
+
     let data = this.cache.get(pathname)
+
+    console.log({
+      key: 'cache_get_from_lru_cache_after_get',
+      timestamp: new Date().toString(),
+      pathname,
+      cacheHit: Boolean(data),
+      cacheKeys: this.cache.keys(),
+    })
 
     // let's check the disk for seed data
     if (!data) {
@@ -138,7 +153,29 @@ export class IncrementalCache {
           pageData,
           revalidateAfter: this.calculateRevalidate(pathname),
         }
+
+        console.log({
+          key: 'cache_get_from_disk_before_lru_set',
+          timestamp: new Date().toString(),
+          pathname: pathname,
+          cacheKeys: this.cache.keys(),
+          cacheLength: this.cache.length,
+          openCacheLength: 1 * 1024 * 1024 - this.cache.length,
+          cacheItemCount: this.cache.itemCount,
+          itemLength: data.html.length + JSON.stringify(data.pageData).length,
+        })
+
         this.cache.set(pathname, data)
+
+        console.log({
+          key: 'cache_get_from_disk_after_lru_set',
+          timestamp: new Date().toString(),
+          pathname: pathname,
+          cacheKeys: this.cache.keys(),
+          cacheLength: this.cache.length,
+          openCacheLength: 1 * 1024 * 1024 - this.cache.length,
+          cacheItemCount: this.cache.itemCount,
+        })
       } catch (_) {
         // unable to get data from disk
       }
@@ -158,6 +195,16 @@ export class IncrementalCache {
     if (data && manifestEntry) {
       data.curRevalidate = manifestEntry.initialRevalidateSeconds
     }
+
+    console.log({
+      key: 'cache_get_return',
+      timestamp: new Date().toString(),
+      pathname: pathname,
+      hasData: Boolean(data),
+      isStale: data && data.isStale,
+      revalidateAfter: data && new Date(data.revalidateAfter).toString(),
+    })
+
     return data
   }
 
@@ -172,6 +219,14 @@ export class IncrementalCache {
     },
     revalidateSeconds?: number | false
   ) {
+    console.log({
+      key: 'cache_set',
+      timestamp: new Date().toString(),
+      pathname,
+      revalidateSecondsParam: revalidateSeconds,
+      flushToDisk: this.incrementalOptions.flushToDisk,
+    })
+
     if (this.incrementalOptions.dev) return
     if (typeof revalidateSeconds !== 'undefined') {
       // TODO: Update this to not mutate the manifest from the
@@ -187,9 +242,32 @@ export class IncrementalCache {
     }
 
     pathname = normalizePagePath(pathname)
+
+    console.log({
+      key: 'cache_set_before_lru_set',
+      timestamp: new Date().toString(),
+      pathname: pathname,
+      cacheKeys: this.cache.keys(),
+      cacheLength: this.cache.length,
+      openCacheLength: 1 * 1024 * 1024 - this.cache.length,
+      cacheItemCount: this.cache.itemCount,
+      itemLength: data.html.length + JSON.stringify(data.pageData).length,
+      revalidateAfter: new Date(this.calculateRevalidate(pathname)).toString(),
+    })
+
     this.cache.set(pathname, {
       ...data,
       revalidateAfter: this.calculateRevalidate(pathname),
+    })
+
+    console.log({
+      key: 'cache_set_after_lru_set',
+      timestamp: new Date().toString(),
+      pathname: pathname,
+      cacheKeys: this.cache.keys(),
+      cacheLength: this.cache.length,
+      openCacheLength: 1 * 1024 * 1024 - this.cache.length,
+      cacheItemCount: this.cache.itemCount,
     })
 
     // TODO: This option needs to cease to exist unless it stops mutating the
